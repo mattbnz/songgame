@@ -221,6 +221,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleEndGame(w, r)
 	case "/admin/eject":
 		s.handleEject(w, r)
+	case "/admin/export":
+		s.handleExport(w, r)
 	default:
 		http.NotFound(w, r)
 	}

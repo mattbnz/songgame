@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Song game — {{.StartedAt.Format "Jan 2 2006"}}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* Deliberately light and self-contained (not the shared dark "style") so
+     it prints cleanly and saves to PDF without background graphics. */
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: #1a1a22; background: #fff;
+    margin: 0 auto; padding: 2rem 1.5rem; max-width: 52rem; line-height: 1.4;
+  }
+  h1 { margin: 0; font-size: 1.8rem; }
+  h2 { margin: 2rem 0 0.75rem; font-size: 1.25rem; border-bottom: 2px solid #1a1a22; padding-bottom: 0.25rem; }
+  h3 { margin: 0 0 0.15rem; font-size: 1.05rem; }
+  .meta { color: #5a5a6e; margin: 0.25rem 0 0; }
+  .muted { color: #5a5a6e; }
+  .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+  .toolbar button, .toolbar a {
+    padding: 0.5rem 1rem; font: inherit; font-weight: 600; border-radius: 6px;
+    border: 1px solid #1a1a22; background: #1a1a22; color: #fff; cursor: pointer; text-decoration: none;
+  }
+  .toolbar a { background: #fff; color: #1a1a22; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #ddd; font-size: 0.92rem; vertical-align: top; }
+  th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: #5a5a6e; border-bottom: 1px solid #1a1a22; }
+  td { overflow-wrap: anywhere; }
+  .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .standings td { font-size: 1rem; }
+  .standings tr.top td { font-weight: 700; }
+  .standings .score { font-size: 1.1rem; font-weight: 800; }
+  .ok { color: #157a3a; font-weight: 700; }
+  .no { color: #b3261e; }
+
+  .round { margin: 0 0 1.25rem; padding: 0.75rem 0 0; border-top: 1px solid #ddd; break-inside: avoid; page-break-inside: avoid; }
+  .round:first-of-type { border-top: 0; padding-top: 0; }
+  .round .answer { margin: 0 0 0.4rem; }
+  .round .tally { font-size: 0.85rem; }
+
+  @media print {
+    body { padding: 0; max-width: none; }
+    .toolbar { display: none; }
+    h2 { break-after: avoid; page-break-after: avoid; }
+    .rounds-section { break-before: page; page-break-before: always; }
+    @page { margin: 1.5cm; }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <button type="button" onclick="window.print()">Print / Save as PDF</button>
+    <a href="/admin">Back to admin</a>
+  </div>
+
+  <header>
+    <h1>🎵 Song game results</h1>
+    <p class="meta">
+      {{.StartedAt.Format "Monday, January 2, 2006 · 15:04"}}{{if not .EndedAt.IsZero}}–{{.EndedAt.Format "15:04"}}{{end}}
+      · {{len .Rounds}} round{{if ne (len .Rounds) 1}}s{{end}}
+      · {{len .Standings}} player{{if ne (len .Standings) 1}}s{{end}}
+      {{if .InProgress}}· <em>game in progress</em>{{end}}
+    </p>
+  </header>
+
+  <h2>Final standings</h2>
+  {{if .Standings}}
+  <table class="standings">
+    <tr><th class="num">#</th><th>Player</th><th class="num">Score</th><th class="num">Songs</th><th class="num">Artists</th><th class="num">Answered</th><th class="num">Avg time</th></tr>
+    {{range .Standings}}
+    <tr{{if eq .Rank 1}} class="top"{{end}}>
+      <td class="num">{{if eq .Rank 1}}🥇{{else if eq .Rank 2}}🥈{{else if eq .Rank 3}}🥉{{else}}{{.Rank}}{{end}}</td>
+      <td>{{.Name}}</td>
+      <td class="num score">{{.Score}}</td>
+      <td class="num">{{.SongsRight}}</td>
+      <td class="num">{{.ArtistsRight}}</td>
+      <td class="num">{{.Answered}}/{{len $.Rounds}}</td>
+      <td class="num">{{if .AvgResponseMS}}{{secs .AvgResponseMS}}{{else}}—{{end}}</td>
+    </tr>
+    {{end}}
+  </table>
+  {{else}}
+  <p class="muted">No players.</p>
+  {{end}}
+
+  <section class="rounds-section">
+  <h2>Round by round</h2>
+  {{range .Rounds}}
+  <div class="round">
+    <h3>Round {{.Number}}</h3>
+    <p class="answer"><strong>{{.Song}}</strong> <span class="muted">— {{.Artists}}</span></p>
+    {{if .Answers}}
+    <p class="tally muted">{{.SongsRight}} of {{len .Answers}} got the song · {{.ArtistsRight}} of {{len .Answers}} got the artist</p>
+    <table>
+      <tr><th>Player</th><th>Song guess</th><th>Artist guess</th><th class="num">Time</th></tr>
+      {{range .Answers}}
+      <tr>
+        <td>{{.PlayerName}}</td>
+        <td>{{.SongGuess}} {{if .SongCorrect}}<span class="ok">✓</span>{{else}}<span class="no">✗</span>{{end}}</td>
+        <td>{{.ArtistGuess}} {{if .ArtistCorrect}}<span class="ok">✓</span>{{else}}<span class="no">✗</span>{{end}}</td>
+        <td class="num">{{if .ResponseMS}}{{secs .ResponseMS}}{{else}}—{{end}}</td>
+      </tr>
+      {{end}}
+    </table>
+    {{else}}
+    <p class="muted">Nobody answered.</p>
+    {{end}}
+  </div>
+  {{else}}
+  <p class="muted">No rounds completed yet.</p>
+  {{end}}
+  </section>
+</body>
+</html>
