@@ -2,6 +2,7 @@ package main
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -30,11 +31,48 @@ func normalize(s string) string {
 		}
 	}
 	s = b.String()
-	s = strings.Join(strings.Fields(s), " ")
+	s = strings.Join(numberWordsToDigits(strings.Fields(s)), " ")
 	s = strings.TrimPrefix(s, "the ")
 	s = strings.TrimPrefix(s, "a ")
 	s = strings.TrimPrefix(s, "an ")
 	return s
+}
+
+var (
+	unitWords = map[string]int{
+		"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+		"seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+		"thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+		"seventeen": 17, "eighteen": 18, "nineteen": 19,
+	}
+	tensWords = map[string]int{
+		"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+		"sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+	}
+)
+
+// numberWordsToDigits rewrites spelled-out numbers as digits so that e.g.
+// "five seconds of summer" and "5 seconds of summer" normalize identically.
+// Handles 0-99, including "twenty one" style compounds.
+func numberWordsToDigits(words []string) []string {
+	out := make([]string, 0, len(words))
+	for i := 0; i < len(words); i++ {
+		w := words[i]
+		if n, ok := tensWords[w]; ok {
+			if i+1 < len(words) {
+				if u, ok := unitWords[words[i+1]]; ok && u >= 1 && u <= 9 {
+					n += u
+					i++
+				}
+			}
+			out = append(out, strconv.Itoa(n))
+		} else if n, ok := unitWords[w]; ok {
+			out = append(out, strconv.Itoa(n))
+		} else {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 func levenshtein(a, b string) int {

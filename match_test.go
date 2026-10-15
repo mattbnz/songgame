@@ -12,6 +12,10 @@ func TestNormalize(t *testing.T) {
 		{"Blinding Lights (feat. Rosalía)", "blinding lights"},
 		{"Crazy In Love ft. JAY Z", "crazy in love"},
 		{"The Beatles", "beatles"},
+		{"Five Seconds of Summer", "5 seconds of summer"},
+		{"Maroon Five", "maroon 5"},
+		{"Twenty One Pilots", "21 pilots"},
+		{"Ninety Nine Problems", "99 problems"},
 		{"Déjà Vu", "deja vu"}, // accents are stripped by !IsLetter? actually é is a letter
 	}
 	for _, c := range cases {
@@ -65,6 +69,12 @@ func TestMatchAnyArtist(t *testing.T) {
 		}
 	}
 	bads := []string{"Drake", "", "ed sheeran"}
+	if !matchAnyArtist("five seconds of summer", []string{"5 Seconds of Summer"}) {
+		t.Errorf("matchAnyArtist(five seconds of summer) = false, want true")
+	}
+	if !matchAnyArtist("twenty one pilots", []string{"twenty one pilots"}) {
+		t.Errorf("matchAnyArtist(twenty one pilots) = false, want true")
+	}
 	for _, g := range bads {
 		if matchAnyArtist(g, artists) {
 			t.Errorf("matchAnyArtist(%q) = true, want false", g)
