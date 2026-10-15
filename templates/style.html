@@ -106,6 +106,7 @@
   button.big { padding: 0.85rem 1.2rem; font-size: 1.1rem; }
 
   table { width: 100%; border-collapse: collapse; }
+  th.time, td.time { text-align: right; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
   th, td { text-align: left; padding: 0.5rem 0.55rem; border-bottom: 1px solid rgba(255,255,255,0.07); font-size: 0.95rem; }
   th { color: var(--muted); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
   td, .wrap { overflow-wrap: anywhere; }
@@ -148,6 +149,7 @@
   .scores li:nth-child(2) .rank { background: linear-gradient(135deg, #e6e9f0, #a9b1c2); color: #2a2f3a; }
   .scores li:nth-child(3) .rank { background: linear-gradient(135deg, #e7a46b, #b46a35); color: #2e1606; }
   .scores .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .scores .avg { flex: none; color: var(--muted); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
   .scores .score { font-weight: 800; font-variant-numeric: tabular-nums; font-size: 1.1rem; }
   .scores .empty { color: var(--muted); font-size: 0.9rem; }
   .scores form { display: inline; margin: 0; }
@@ -167,6 +169,7 @@
     .sidebar .scores .rank { width: 1.4rem; height: 1.4rem; font-size: 0.7rem; }
     .sidebar .scores .name { max-width: 7rem; font-size: 0.9rem; }
     .sidebar .scores .score { font-size: 0.95rem; }
+    .sidebar .scores .avg { display: none; }
   }
 </style>
 {{end}}

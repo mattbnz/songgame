@@ -21,6 +21,20 @@ type Player struct {
 	Name     string    `json:"name"`
 	Score    int       `json:"score"`
 	JoinedAt time.Time `json:"joined_at"`
+
+	// Response-time stats for the current game. Informational only — they
+	// never affect Score.
+	ResponseTotalMS int64 `json:"response_total_ms,omitempty"`
+	ResponseCount   int   `json:"response_count,omitempty"`
+}
+
+// AvgResponseMS returns the player's mean response time this game, or 0 if
+// they haven't answered any rounds.
+func (p *Player) AvgResponseMS() int64 {
+	if p.ResponseCount == 0 {
+		return 0
+	}
+	return p.ResponseTotalMS / int64(p.ResponseCount)
 }
 
 type Answer struct {
@@ -31,6 +45,9 @@ type Answer struct {
 	SongCorrect   bool      `json:"song_correct"`
 	ArtistCorrect bool      `json:"artist_correct"`
 	SubmittedAt   time.Time `json:"-"`
+	// ResponseMS is how long after the round went active the answer was
+	// locked in. Drafts promoted at round end count as the full round length.
+	ResponseMS int64 `json:"response_ms,omitempty"`
 }
 
 const (
@@ -510,6 +527,8 @@ func (g *Game) EndGame() {
 	g.Number = 0
 	for _, p := range g.Players {
 		p.Score = 0
+		p.ResponseTotalMS = 0
+		p.ResponseCount = 0
 	}
 	go g.notify()
 }
@@ -564,6 +583,7 @@ func (g *Game) SubmitAnswer(playerID, songGuess, artistGuess string) bool {
 	}
 	songOK := fuzzyMatch(songGuess, g.Round.Track.Name)
 	artistOK := matchAnyArtist(artistGuess, g.Round.Track.ArtistNames())
+	now := time.Now()
 	g.Round.Answers[playerID] = &Answer{
 		PlayerID:      playerID,
 		PlayerName:    p.Name,
@@ -571,7 +591,8 @@ func (g *Game) SubmitAnswer(playerID, songGuess, artistGuess string) bool {
 		ArtistGuess:   artistGuess,
 		SongCorrect:   songOK,
 		ArtistCorrect: artistOK,
-		SubmittedAt:   time.Now(),
+		SubmittedAt:   now,
+		ResponseMS:    now.Sub(g.Round.StartedAt).Milliseconds(),
 	}
 	answered := len(g.Round.Answers)
 	total := len(g.Players)
@@ -670,6 +691,7 @@ func (g *Game) endRoundLocked() {
 			SongCorrect:   fuzzyMatch(d.SongGuess, g.Round.Track.Name),
 			ArtistCorrect: matchAnyArtist(d.ArtistGuess, g.Round.Track.ArtistNames()),
 			SubmittedAt:   d.UpdatedAt,
+			ResponseMS:    g.Round.EndedAt.Sub(g.Round.StartedAt).Milliseconds(),
 		}
 	}
 	for _, ans := range g.Round.Answers {
@@ -683,6 +705,8 @@ func (g *Game) endRoundLocked() {
 		if ans.ArtistCorrect {
 			p.Score++
 		}
+		p.ResponseTotalMS += ans.ResponseMS
+		p.ResponseCount++
 	}
 	// Capture a persistent snapshot of this round's answers so players can see
 	// everyone's guesses below the scoreboard — including after the next round starts.

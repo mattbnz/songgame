@@ -79,12 +79,13 @@
       <h3>Answers this round</h3>
       {{if .Answers}}
       <table>
-        <tr><th>Player</th><th>Song</th><th>Artist</th></tr>
+        <tr><th>Player</th><th>Song</th><th>Artist</th><th class="time">Time</th></tr>
         {{range .Answers}}
         <tr>
           <td>{{.PlayerName}}</td>
           <td>{{.SongGuess}} {{if .SongCorrect}}<span class="mark-ok">✓</span>{{else}}<span class="mark-no">✗</span>{{end}}</td>
           <td>{{.ArtistGuess}} {{if .ArtistCorrect}}<span class="mark-ok">✓</span>{{else}}<span class="mark-no">✗</span>{{end}}</td>
+          <td class="time">{{if .ResponseMS}}{{secs .ResponseMS}}{{else}}—{{end}}</td>
         </tr>
         {{end}}
       </table>
@@ -99,12 +100,13 @@
       <p class="muted" style="margin-top:0">The song was <strong style="color:var(--text)">{{.Song}}</strong> by <strong style="color:var(--text)">{{.Artists}}</strong>.</p>
       {{if .Answers}}
       <table>
-        <tr><th>Player</th><th>Song guess</th><th>Artist guess</th></tr>
+        <tr><th>Player</th><th>Song guess</th><th>Artist guess</th><th class="time">Time</th></tr>
         {{range .Answers}}
         <tr>
           <td>{{.PlayerName}}</td>
           <td>{{.SongGuess}} {{if .SongCorrect}}<span class="mark-ok">✓</span>{{else}}<span class="mark-no">✗</span>{{end}}</td>
           <td>{{.ArtistGuess}} {{if .ArtistCorrect}}<span class="mark-ok">✓</span>{{else}}<span class="mark-no">✗</span>{{end}}</td>
+          <td class="time">{{if .ResponseMS}}{{secs .ResponseMS}}{{else}}—{{end}}</td>
         </tr>
         {{end}}
       </table>
@@ -204,12 +206,13 @@
             <strong>Round {{.Number}}:</strong> {{.Song}} <span class="muted">— {{.Artists}}</span>
             {{if .Answers}}
             <table style="margin-top:0.25rem;">
-              <tr><th>Player</th><th>Song guess</th><th>Artist guess</th></tr>
+              <tr><th>Player</th><th>Song guess</th><th>Artist guess</th><th class="time">Time</th></tr>
               {{range .Answers}}
               <tr>
                 <td>{{.PlayerName}}</td>
                 <td>{{.SongGuess}} {{if .SongCorrect}}<span class="mark-ok">✓</span>{{else}}<span class="mark-no">✗</span>{{end}}</td>
                 <td>{{.ArtistGuess}} {{if .ArtistCorrect}}<span class="mark-ok">✓</span>{{else}}<span class="mark-no">✗</span>{{end}}</td>
+                <td class="time">{{if .ResponseMS}}{{secs .ResponseMS}}{{else}}—{{end}}</td>
               </tr>
               {{end}}
             </table>
@@ -231,7 +234,7 @@
       <ol>
         {{range $i, $p := .Scoreboard}}
         <li>
-          <span class="rank">{{inc $i}}</span><span class="name">{{$p.Name}}</span><span class="score">{{$p.Score}}</span>
+          <span class="rank">{{inc $i}}</span><span class="name">{{$p.Name}}</span><span class="avg" title="Average response time">{{if $p.ResponseCount}}⏱ {{secs $p.AvgResponseMS}}{{end}}</span><span class="score">{{$p.Score}}</span>
           <form method="post" action="/admin/eject"
                 onsubmit="return confirm('Eject {{$p.Name}} from this game?');">
             <input type="hidden" name="player_id" value="{{$p.ID}}">
