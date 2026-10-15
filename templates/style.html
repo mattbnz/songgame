@@ -133,6 +133,9 @@
   .extend-footer #extendedBy { margin-top: 0.4rem; }
   .extend-btns { display: inline-flex; gap: 0.35rem; }
   .extend-btns button { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
+  .extend-btns button.minus { color: #ffb3bb; }
+  .extend-btns button.chosen, .extend-btns button.chosen:disabled { color: #fff; background: linear-gradient(135deg, #5cb8ff, #b06cff); border-color: transparent; }
+  .extend-btns button.minus.chosen, .extend-btns button.minus.chosen:disabled { background: linear-gradient(135deg, #ff4d63, #ff7a59); }
   .extend-budget { display: inline-flex; align-items: center; gap: 0.4rem; font-variant-numeric: tabular-nums; }
   .extend-budget .meter { width: 4rem; height: 0.4rem; border-radius: 999px; background: rgba(255,255,255,0.10); overflow: hidden; }
   .extend-budget .meter span { display: block; height: 100%; background: linear-gradient(90deg, #5cb8ff, #b06cff); transition: width 0.3s; }

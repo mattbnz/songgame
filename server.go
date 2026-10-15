@@ -326,9 +326,9 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// handleExtend lets any player push back the auto-advance to the next round
-// by 10/20/30s ("secs" form value), paid from their extension budget, when
-// they want to keep listening. Called via background fetch(); the new
+// handleExtend records a player's one-per-song vote to push the next round
+// back or pull it forward ("secs" form value: ±10/±30), paid from their
+// extension budget. Called via background fetch(); the new
 // deadline arrives over SSE.
 func (s *Server) handleExtend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
