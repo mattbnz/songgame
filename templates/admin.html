@@ -72,6 +72,9 @@
         <form method="post" action="/admin/end-game" onsubmit="return confirm('End this game and archive it to history? Scores reset to zero but players stay.');">
           <button type="submit" class="secondary big" title="Archive the current game and reset scores to zero">End game</button>
         </form>
+        <form method="get" action="/admin/export" target="_blank">
+          <button type="submit" class="secondary big" title="Printable summary of this game — scores and every round">Export</button>
+        </form>
         {{end}}
       </div>
     </div>
@@ -198,6 +201,7 @@
       <details style="margin-bottom:0.5rem;">
         <summary><strong>{{.StartedAt.Format "Jan 2 15:04"}}</strong> <span class="muted">— {{len .Rounds}} rounds, {{len .Players}} players</span></summary>
         <div style="margin-top:0.5rem;">
+          <p style="margin:0 0 0.5rem;"><a href="/admin/export?game={{.ID}}" target="_blank">Printable summary ↗</a></p>
           <strong>Final scores:</strong>
           <ul style="margin:0.25rem 0 0.5rem 1.25rem;">
             {{range .Players}}<li>{{.Name}} — {{.Score}}</li>{{end}}
