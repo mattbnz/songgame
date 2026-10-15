@@ -68,6 +68,12 @@ const devicesCacheTTL = 5 * time.Minute
 func NewServer(cfg ServerConfig) *Server {
 	funcs := template.FuncMap{
 		"inc": func(i int) int { return i + 1 },
+		"pct": func(n, d int) int {
+			if d <= 0 {
+				return 0
+			}
+			return min(100, 100*n/d)
+		},
 	}
 	tpl := template.Must(template.New("").Funcs(funcs).ParseFS(templatesFS, "templates/*.html"))
 	s := &Server{

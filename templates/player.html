@@ -4,57 +4,41 @@
 <meta charset="utf-8">
 <title>Guess that song</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 1.5rem auto; padding: 0 1rem; }
-  h1 { margin: 0 0 0.25rem 0; }
-  .you { color: #666; margin-bottom: 1rem; }
-  .card { border: 1px solid #ddd; border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
-  .status { font-size: 1.1rem; font-weight: 600; }
-  .waiting { color: #888; }
-  .active { color: #1db954; }
-  .reveal { color: #b26a00; }
-  form { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
-  input[type=text] { padding: 0.6rem; font-size: 1rem; border: 1px solid #999; border-radius: 4px; }
-  button { padding: 0.6rem 1rem; font-size: 1rem; background: #1db954; color: white; border: 0; border-radius: 4px; cursor: pointer; }
-  button:disabled { background: #aaa; cursor: not-allowed; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #eee; }
-  th { font-size: 0.85rem; color: #666; }
-  .me { font-weight: 600; }
-  .mark-ok { color: #1db954; font-weight: 600; }
-  .mark-no { color: #c33; }
-  .count { color: #666; font-size: 0.9rem; }
-  .countdown { display: inline-block; margin-top: 0.5rem; padding: 0.3rem 0.6rem; background: #fdecea; color: #a22; border-radius: 4px; font-weight: 600; font-size: 0.95rem; }
-  .countdown.results { background: #e7f3fe; color: #14518b; }
-  .countdown[hidden] { display: none; }
-</style>
+{{template "style"}}
 </head>
 <body data-you-id="{{if .You}}{{.You.ID}}{{end}}">
-  <h1>Guess that song</h1>
-  {{if .You}}<div class="you">Playing as <strong>{{.You.Name}}</strong></div>{{end}}
+<div class="page">
+  <header class="top">
+    <h1 class="brand"><span class="logo">🎵</span><span class="grad">Guess that song</span></h1>
+    {{if .You}}<div class="you-badge">Playing as <strong>{{.You.Name}}</strong></div>{{end}}
+  </header>
 
-  <div class="card" id="round">
+  <div class="layout">
+  <main>
+  <div class="card hero" id="round">
     {{if .RoundPrep}}
-      <div class="status waiting">Getting round {{.RoundNumber}} ready…</div>
+      <div class="status waiting"><span class="dot"></span>Getting round {{.RoundNumber}} ready…</div>
       <p class="muted">Waiting for Spotify to sync. You'll see the guessing form as soon as the song is confirmed.</p>
     {{else if .RoundActive}}
-      <div class="status active">Round {{.RoundNumber}} — a song is playing!</div>
-      {{if .HasAnswered}}
-        <p>You answered. Waiting for others…</p>
-        <p class="count"><span class="answered">{{.AnswerCount}}</span> of <span class="players">{{.PlayerCount}}</span> players answered</p>
-      {{else}}
-        <form method="post" action="/answer">
-          <label>Song title <input type="text" name="song" autocomplete="off" autofocus required></label>
-          <label>Artist <input type="text" name="artist" autocomplete="off" required></label>
-          <button type="submit">Submit</button>
-        </form>
-        <p class="count"><span class="answered">{{.AnswerCount}}</span> of <span class="players">{{.PlayerCount}}</span> players answered so far</p>
-      {{end}}
-      <div id="grace" class="countdown" data-deadline="{{.GraceUntilUnix}}" {{if not .GraceUntilUnix}}hidden{{end}}>
-        Hurry! <span class="secs">—</span>s until the round auto-ends
+      <div class="status active"><span class="dot"></span>Round {{.RoundNumber}} — a song is playing!
+        <span class="eq" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
       </div>
-      <div id="liveAnswersWrap" {{if not .HasAnswered}}hidden{{end}} style="margin-top:0.75rem;">
-        <h4 style="margin:0.5rem 0 0.25rem 0; font-size:0.9rem; color:#666;">Guesses so far</h4>
+      {{if .HasAnswered}}
+        <p>✅ You answered. Waiting for others…</p>
+      {{else}}
+        <form class="stack" method="post" action="/answer">
+          <label class="field">Song title <input type="text" name="song" autocomplete="off" placeholder="What's the song?" autofocus required></label>
+          <label class="field">Artist <input type="text" name="artist" autocomplete="off" placeholder="Who sings it?" required></label>
+          <button type="submit" class="big">Lock it in</button>
+        </form>
+      {{end}}
+      <p class="count" style="margin-bottom:0;"><span class="answered">{{.AnswerCount}}</span> of <span class="players">{{.PlayerCount}}</span> players answered{{if not .HasAnswered}} so far{{end}}</p>
+      <div class="progress"><div id="answerBar" data-answered="{{.AnswerCount}}" data-players="{{.PlayerCount}}"></div></div>
+      <div id="grace" class="countdown" data-deadline="{{.GraceUntilUnix}}" {{if not .GraceUntilUnix}}hidden{{end}}>
+        ⏱ Hurry! <span class="secs">—</span>s until the round auto-ends
+      </div>
+      <div id="liveAnswersWrap" {{if not .HasAnswered}}hidden{{end}} style="margin-top:1rem;">
+        <h4 class="muted small" style="margin:0.5rem 0 0.25rem 0; text-transform:uppercase; letter-spacing:0.06em;">Guesses so far</h4>
         <table>
           <thead><tr><th>Player</th><th>Song</th><th>Artist</th></tr></thead>
           <tbody id="liveAnswers">
@@ -67,39 +51,34 @@
         </table>
       </div>
     {{else if .RoundEnded}}
-      <div class="status reveal">Round {{.RoundNumber}} ended</div>
-      <p>The song was <strong>{{.RevealSong}}</strong> by <strong>{{.RevealArtists}}</strong>.</p>
+      <div class="status reveal"><span class="dot"></span>Round {{.RoundNumber}} ended</div>
+      <div class="reveal-box">
+        <div class="muted small">The song was</div>
+        <div class="song">{{.RevealSong}}</div>
+        <div class="artist">by {{.RevealArtists}}</div>
+      </div>
       {{if .HasAnswered}}
-        <p>Your guess: <em>{{.YourSongGuess}}</em> by <em>{{.YourArtistGuess}}</em></p>
-        <p>Song: {{if .YourSongOK}}<span class="mark-ok">correct</span>{{else}}<span class="mark-no">nope</span>{{end}}
-           &nbsp;·&nbsp; Artist: {{if .YourArtistOK}}<span class="mark-ok">correct</span>{{else}}<span class="mark-no">nope</span>{{end}}</p>
+        <p style="margin-bottom:0.25rem;">Your guess: <em>{{.YourSongGuess}}</em> by <em>{{.YourArtistGuess}}</em></p>
+        <div class="verdict">
+          {{if .YourSongOK}}<span class="chip ok">✓ Song</span>{{else}}<span class="chip no">✗ Song</span>{{end}}
+          {{if .YourArtistOK}}<span class="chip ok">✓ Artist</span>{{else}}<span class="chip no">✗ Artist</span>{{end}}
+        </div>
       {{else}}
-        <p>You didn't answer in time.</p>
+        <p class="muted">You didn't answer in time.</p>
       {{end}}
       <div id="advance" class="countdown results" data-deadline="{{.AutoAdvanceUnix}}" {{if not .AutoAdvanceUnix}}hidden{{end}}>
-        Next round in <span class="secs">—</span>s
+        ⏭ Next round in <span class="secs">—</span>s
       </div>
     {{else}}
-      <div class="status waiting">Waiting for the host to start a round…</div>
+      <div class="status waiting"><span class="dot"></span>Waiting for the host to start a round…</div>
+      <p class="muted" style="margin-bottom:0;">Get your ears ready 🎧</p>
     {{end}}
-  </div>
-
-  <div class="card">
-    <h3 style="margin-top:0">Scoreboard</h3>
-    <table>
-      <tr><th>#</th><th>Player</th><th>Score</th></tr>
-      {{range $i, $p := .Scoreboard}}
-      <tr class="{{if and $.You (eq $p.ID $.You.ID)}}me{{end}}">
-        <td>{{inc $i}}</td><td>{{$p.Name}}</td><td>{{$p.Score}}</td>
-      </tr>
-      {{end}}
-    </table>
   </div>
 
   {{with .PrevRound}}
   <div class="card">
-    <h3 style="margin-top:0">Round {{.Number}} results</h3>
-    <p class="muted" style="margin-top:0">The song was <strong>{{.Song}}</strong> by <strong>{{.Artists}}</strong>.</p>
+    <h3>Round {{.Number}} results</h3>
+    <p class="muted" style="margin-top:0">The song was <strong style="color:var(--text)">{{.Song}}</strong> by <strong style="color:var(--text)">{{.Artists}}</strong>.</p>
     {{if .Answers}}
     <table>
       <tr><th>Player</th><th>Song guess</th><th>Artist guess</th></tr>
@@ -116,6 +95,24 @@
     {{end}}
   </div>
   {{end}}
+  </main>
+
+  <aside class="sidebar">
+    <div class="card scores">
+      <h3>🏆 Scoreboard</h3>
+      <ol id="scoreboard">
+        {{range $i, $p := .Scoreboard}}
+        <li class="{{if and $.You (eq $p.ID $.You.ID)}}me{{end}}">
+          <span class="rank">{{inc $i}}</span><span class="name">{{$p.Name}}</span><span class="score">{{$p.Score}}</span>
+        </li>
+        {{else}}
+        <li class="empty">No players yet</li>
+        {{end}}
+      </ol>
+    </div>
+  </aside>
+  </div>
+</div>
 
 <script>
 (function(){
@@ -149,6 +146,35 @@
     }
     tbody.innerHTML = html;
   }
+
+  function renderScoreboard(list) {
+    var ol = document.getElementById('scoreboard');
+    if (!ol || !list) return;
+    if (list.length === 0) {
+      ol.innerHTML = '<li class="empty">No players yet</li>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      var meCls = (youID && p.id === youID) ? ' class="me"' : '';
+      html += '<li' + meCls + '><span class="rank">' + (i + 1)
+           + '</span><span class="name">' + escapeHTML(p.name)
+           + '</span><span class="score">' + escapeHTML(p.score) + '</span></li>';
+    }
+    ol.innerHTML = html;
+  }
+
+  function updateProgress(answered, players) {
+    var bar = document.getElementById('answerBar');
+    if (!bar) return;
+    if (answered != null) bar.dataset.answered = String(answered);
+    if (players != null) bar.dataset.players = String(players);
+    var a = parseInt(bar.dataset.answered, 10) || 0;
+    var p = parseInt(bar.dataset.players, 10) || 0;
+    bar.style.width = (p > 0 ? Math.min(100, Math.round(100 * a / p)) : 0) + '%';
+  }
+  updateProgress();
 
   function setDeadline(id, unix) {
     var el = document.getElementById(id);
@@ -242,6 +268,8 @@
         document.querySelectorAll('.count .players').forEach(function(e){ e.textContent = v.player_count; });
       }
       renderLiveAnswers(v.live_answers);
+      renderScoreboard(v.scoreboard);
+      updateProgress(v.answer_count, v.player_count);
       last = v;
     } catch (err) { /* ignore */ }
   };
