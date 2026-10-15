@@ -27,8 +27,8 @@
         <p>✅ You answered. Waiting for others…</p>
       {{else}}
         <form class="stack" method="post" action="/answer">
-          <label class="field">Song title <input type="text" name="song" autocomplete="off" placeholder="What's the song?" autofocus required></label>
-          <label class="field">Artist <input type="text" name="artist" autocomplete="off" placeholder="Who sings it?" required></label>
+          <label class="field">Song title <input type="text" name="song" maxlength="100" autocomplete="off" placeholder="What's the song?" autofocus required></label>
+          <label class="field">Artist <input type="text" name="artist" maxlength="100" autocomplete="off" placeholder="Who sings it?" required></label>
           <button type="submit" class="big">Lock it in</button>
         </form>
       {{end}}
@@ -58,7 +58,7 @@
         <div class="artist">by {{.RevealArtists}}</div>
       </div>
       {{if .HasAnswered}}
-        <p style="margin-bottom:0.25rem;">Your guess: <em>{{.YourSongGuess}}</em> by <em>{{.YourArtistGuess}}</em></p>
+        <p class="wrap" style="margin-bottom:0.25rem;">Your guess: <em>{{.YourSongGuess}}</em> by <em>{{.YourArtistGuess}}</em></p>
         <div class="verdict">
           {{if .YourSongOK}}<span class="chip ok">✓ Song</span>{{else}}<span class="chip no">✗ Song</span>{{end}}
           {{if .YourArtistOK}}<span class="chip ok">✓ Artist</span>{{else}}<span class="chip no">✗ Artist</span>{{end}}
