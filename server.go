@@ -272,6 +272,18 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// maxGuessLen caps guess length (in runes) so a silly-long entry can't break
+// the results tables. Kept in sync with maxlength on the player form inputs.
+const maxGuessLen = 100
+
+func cleanGuess(s string) string {
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > maxGuessLen {
+		s = strings.TrimSpace(string(r[:maxGuessLen]))
+	}
+	return s
+}
+
 // handleDraft records the player's in-progress (untyped or partially-typed)
 // guess. Players' clients post this periodically while typing so a sudden
 // round-end (admin "End round now", last player submits, grace timeout)
@@ -288,8 +300,8 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not joined", http.StatusUnauthorized)
 		return
 	}
-	song := strings.TrimSpace(r.FormValue("song"))
-	artist := strings.TrimSpace(r.FormValue("artist"))
+	song := cleanGuess(r.FormValue("song"))
+	artist := cleanGuess(r.FormValue("artist"))
 	s.game.UpdateDraft(id, song, artist)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -304,8 +316,8 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	song := strings.TrimSpace(r.FormValue("song"))
-	artist := strings.TrimSpace(r.FormValue("artist"))
+	song := cleanGuess(r.FormValue("song"))
+	artist := cleanGuess(r.FormValue("artist"))
 	s.game.SubmitAnswer(id, song, artist)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
