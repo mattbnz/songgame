@@ -73,6 +73,22 @@
       <div class="status waiting"><span class="dot"></span>Waiting for the host to start a round…</div>
       <p class="muted" style="margin-bottom:0;">Get your ears ready 🎧</p>
     {{end}}
+    {{if or .RoundActive .RoundEnded}}
+      <footer class="extend-footer">
+      <div class="extend-row">
+        <span class="muted small">🎶 Like this song?</span>
+        <span class="extend-btns" title="{{if .RoundActive}}Add time to the results screen after this round{{else}}Delay the next round{{end}}">
+          {{range .ExtendOptionsS}}<button type="button" class="secondary extend" data-secs="{{.}}" {{if or (not $.CanExtend) (gt . $.ExtendLeftS)}}disabled{{end}}>+{{.}}s</button>{{end}}
+        </span>
+        <span class="extend-budget" id="extendBudget" title="Your time budget for delaying the next round. Refills {{.ExtendRechargeS}}s each round.">
+          <span class="muted small">Budget</span>
+          <span class="meter"><span id="extendMeter" style="width:{{pct .ExtendLeftS .ExtendBudgetS}}%"></span></span>
+          <span id="extendLeft" class="small">{{.ExtendLeftS}}s / {{.ExtendBudgetS}}s</span>
+        </span>
+      </div>
+      <div id="extendedBy" class="muted small" {{if not .ExtendedBy}}hidden{{end}}>{{if .ExtendedBy}}🎶 Extended by {{join .ExtendedBy ", "}}{{end}}</div>
+      </footer>
+    {{end}}
   </div>
 
   {{with .PrevRound}}
@@ -247,6 +263,37 @@
     if (document.visibilityState === 'hidden') sendDraftNow();
   });
 
+  // "I like this song" — any player can push the next round back 10/20/30s,
+  // while guessing (banked for the results screen) or after,
+  // spending from a per-player budget that recharges a little each round.
+  // The new deadline, remaining budget and who extended arrive over SSE.
+  var extendBtns = document.querySelectorAll('button.extend');
+  extendBtns.forEach(function(btn){
+    btn.addEventListener('click', function(){
+      extendBtns.forEach(function(b){ b.disabled = true; });
+      var fd = new FormData();
+      fd.append('secs', btn.dataset.secs);
+      fetch('/extend', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .catch(function(){ btn.disabled = false; });
+    });
+  });
+  function renderExtended(v) {
+    extendBtns.forEach(function(b){
+      b.disabled = !v.can_extend || parseInt(b.dataset.secs, 10) > v.extend_left_s;
+    });
+    var left = document.getElementById('extendLeft');
+    if (left) left.textContent = v.extend_left_s + 's / ' + v.extend_budget_s + 's';
+    var meter = document.getElementById('extendMeter');
+    if (meter) meter.style.width = (v.extend_budget_s > 0 ? Math.min(100, Math.round(100 * v.extend_left_s / v.extend_budget_s)) : 0) + '%';
+    var budget = document.getElementById('extendBudget');
+    if (budget) budget.title = 'Your time budget for delaying the next round. Refills ' + v.extend_recharge_s + 's each round.';
+    var el = document.getElementById('extendedBy');
+    if (!el) return;
+    var names = v.extended_by || [];
+    el.hidden = names.length === 0;
+    el.textContent = names.length ? '🎶 Extended by ' + names.join(', ') : '';
+  }
+
   var es = new EventSource("/events");
   es.onmessage = function(e){
     try {
@@ -276,6 +323,7 @@
         document.querySelectorAll('.count .players').forEach(function(e){ e.textContent = v.player_count; });
       }
       renderLiveAnswers(v.live_answers);
+      renderExtended(v);
       renderScoreboard(v.scoreboard);
       updateProgress(v.answer_count, v.player_count);
       last = v;
