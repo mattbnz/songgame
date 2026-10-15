@@ -1,7 +1,9 @@
 package main
 
 import (
+	"slices"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -26,6 +28,17 @@ type Player struct {
 	// never affect Score.
 	ResponseTotalMS int64 `json:"response_total_ms,omitempty"`
 	ResponseCount   int   `json:"response_count,omitempty"`
+
+	// ExtendSpentS is how much of the player's results-extension budget is
+	// used up (see extendBudgetFor). Stored as spent rather than remaining so
+	// the zero value — new players, older snapshots — means a full budget.
+	ExtendSpentS int `json:"extend_spent_s,omitempty"`
+}
+
+// extendRemaining returns how much extension budget the player has left
+// given the current group size.
+func (p *Player) extendRemaining(players int) time.Duration {
+	return max(0, extendBudgetFor(players)-time.Duration(p.ExtendSpentS)*time.Second)
 }
 
 // AvgResponseMS returns the player's mean response time this game, or 0 if
@@ -69,6 +82,7 @@ type Round struct {
 	Ended         bool // kept for backward-compat snapshots; = Phase==PhaseEnded
 	EndedAt       time.Time
 	AutoAdvanceAt time.Time
+	ExtendedBy    map[string]int // player ID → seconds of "more time" they added to the results screen (during guessing or after)
 }
 
 // Draft is an unsubmitted in-progress guess. Players' clients post drafts
@@ -396,6 +410,7 @@ func (g *Game) BeginPrepRound(prevURI string) {
 		g.autoAdvanceTimer.Stop()
 		g.autoAdvanceTimer = nil
 	}
+	g.refundUnendedExtensionsLocked()
 	if g.GameID == "" {
 		g.GameID = randomGameID()
 		g.StartedAt = time.Now()
@@ -529,6 +544,7 @@ func (g *Game) EndGame() {
 		p.Score = 0
 		p.ResponseTotalMS = 0
 		p.ResponseCount = 0
+		p.ExtendSpentS = 0
 	}
 	go g.notify()
 }
@@ -674,6 +690,10 @@ func (g *Game) endRoundLocked() {
 	g.Round.Ended = true
 	g.Round.EndedAt = time.Now()
 	g.Round.AutoAdvanceAt = time.Now().Add(g.resultsDuration)
+	// Extensions bought while guessing lengthen the results screen.
+	for _, secs := range g.Round.ExtendedBy {
+		g.Round.AutoAdvanceAt = g.Round.AutoAdvanceAt.Add(time.Duration(secs) * time.Second)
+	}
 	// Promote in-progress drafts from players who never explicitly submitted,
 	// so a half-typed guess still counts when the round ends suddenly.
 	for pid, d := range g.Round.Drafts {
@@ -708,6 +728,11 @@ func (g *Game) endRoundLocked() {
 		p.ResponseTotalMS += ans.ResponseMS
 		p.ResponseCount++
 	}
+	// Every completed round trickles a bit of extension budget back.
+	recharge := int(extendRechargeFor(len(g.Players)) / time.Second)
+	for _, p := range g.Players {
+		p.ExtendSpentS = max(0, p.ExtendSpentS-recharge)
+	}
 	// Capture a persistent snapshot of this round's answers so players can see
 	// everyone's guesses below the scoreboard — including after the next round starts.
 	result := &RoundResult{
@@ -725,11 +750,124 @@ func (g *Game) endRoundLocked() {
 	g.PrevRound = result
 	g.Rounds = append(g.Rounds, result)
 	if g.onAutoAdvance != nil {
-		g.autoAdvanceTimer = time.AfterFunc(g.resultsDuration, g.onAutoAdvance)
+		g.autoAdvanceTimer = time.AfterFunc(time.Until(g.Round.AutoAdvanceAt), g.onAutoAdvance)
 	}
 	if g.onRoundEnd != nil {
 		go g.onRoundEnd()
 	}
+}
+
+// Results-extension budget: on the results screen each player can push the
+// next round back by one of extendOptions, paid from their own budget. The
+// budget is a share of a group-wide pool, so the total delay a table can add
+// stays roughly the same whether 2 or 6 people are playing.
+var extendOptions = []time.Duration{10 * time.Second, 20 * time.Second, 30 * time.Second}
+
+const (
+	extendGroupPool = 180 * time.Second
+	minExtendBudget = 30 * time.Second
+	maxExtendBudget = 90 * time.Second
+)
+
+// extendBudgetFor returns each player's extension budget for a game with the
+// given number of players.
+func extendBudgetFor(players int) time.Duration {
+	if players < 1 {
+		players = 1
+	}
+	return min(maxExtendBudget, max(minExtendBudget, extendGroupPool/time.Duration(players)))
+}
+
+// extendRechargeFor returns how much budget each player regains per completed
+// round — a sixth of their budget, so a fully-spent player is back to full
+// after six rounds regardless of group size.
+func extendRechargeFor(players int) time.Duration {
+	return extendBudgetFor(players) / 6
+}
+
+// ExtendResults lengthens the results screen by d (which must be one of
+// extendOptions), charged against the player's budget. During guessing the
+// time is banked and applied when the round ends; after, it delays the
+// pending auto-advance directly. Returns false if there's nothing to extend,
+// d isn't allowed, or the player can't afford it.
+func (g *Game) ExtendResults(playerID string, d time.Duration) bool {
+	if !slices.Contains(extendOptions, d) {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.canExtendLocked() {
+		return false
+	}
+	p := g.Players[playerID]
+	if p == nil {
+		return false
+	}
+	if p.extendRemaining(len(g.Players)) < d {
+		return false
+	}
+	secs := int(d / time.Second)
+	p.ExtendSpentS += secs
+	if g.Round.ExtendedBy == nil {
+		g.Round.ExtendedBy = make(map[string]int)
+	}
+	g.Round.ExtendedBy[playerID] += secs
+	if g.Round.Phase == PhaseEnded {
+		g.Round.AutoAdvanceAt = g.Round.AutoAdvanceAt.Add(d)
+		g.autoAdvanceTimer.Reset(time.Until(g.Round.AutoAdvanceAt))
+	}
+	go g.notify()
+	return true
+}
+
+// canExtendLocked reports whether the current round's results screen can
+// still be lengthened: either guessing is underway (and a results screen
+// with auto-advance will follow) or the auto-advance is pending. Must be
+// called with g.mu held.
+func (g *Game) canExtendLocked() bool {
+	if g.Round == nil {
+		return false
+	}
+	switch g.Round.Phase {
+	case PhaseActive:
+		return g.onAutoAdvance != nil
+	case PhaseEnded:
+		return g.autoAdvanceTimer != nil
+	}
+	return false
+}
+
+// refundUnendedExtensionsLocked gives back budget spent during guessing on a
+// round that's being abandoned before it ended (host skipped ahead), since
+// that results screen will never happen. Must be called with g.mu held.
+func (g *Game) refundUnendedExtensionsLocked() {
+	if g.Round == nil || g.Round.Phase != PhaseActive {
+		return
+	}
+	for id, secs := range g.Round.ExtendedBy {
+		if p := g.Players[id]; p != nil {
+			p.ExtendSpentS = max(0, p.ExtendSpentS-secs)
+		}
+	}
+}
+
+// extendedByNamesLocked returns "Name +Ns" entries, sorted by name, for
+// players who extended the current round's results. Must be called with
+// g.mu held.
+func (g *Game) extendedByNamesLocked() []string {
+	if g.Round == nil || len(g.Round.ExtendedBy) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(g.Round.ExtendedBy))
+	for id, secs := range g.Round.ExtendedBy {
+		name := "?"
+		if p := g.Players[id]; p != nil {
+			name = p.Name
+		}
+		names = append(names, name+" +"+strconv.Itoa(secs)+"s")
+	}
+	sort.Strings(names)
+	return names
 }
 
 // --- state snapshots for rendering/SSE ---
@@ -754,6 +892,12 @@ type PlayerView struct {
 	You             *Player       `json:"you"`
 	PrevRound       *RoundResult  `json:"prev_round,omitempty"`
 	LiveAnswers     []*LiveAnswer `json:"live_answers,omitempty"`
+	CanExtend       bool          `json:"can_extend"`
+	ExtendOptionsS  []int         `json:"-"` // button amounts, for the template
+	ExtendLeftS     int           `json:"extend_left_s"`
+	ExtendBudgetS   int           `json:"extend_budget_s"`
+	ExtendRechargeS int           `json:"extend_recharge_s"`
+	ExtendedBy      []string      `json:"extended_by,omitempty"`
 }
 
 func (g *Game) PlayerView(playerID string) PlayerView {
@@ -762,6 +906,9 @@ func (g *Game) PlayerView(playerID string) PlayerView {
 	v := PlayerView{PlayerCount: len(g.Players)}
 	if p, ok := g.Players[playerID]; ok {
 		v.You = p
+		v.ExtendLeftS = int(p.extendRemaining(len(g.Players)) / time.Second)
+		v.ExtendBudgetS = int(extendBudgetFor(len(g.Players)) / time.Second)
+		v.ExtendRechargeS = int(extendRechargeFor(len(g.Players)) / time.Second)
 	}
 	if g.Round != nil {
 		v.RoundNumber = g.Round.Number
@@ -774,6 +921,13 @@ func (g *Game) PlayerView(playerID string) PlayerView {
 		}
 		if !g.Round.AutoAdvanceAt.IsZero() && v.RoundEnded {
 			v.AutoAdvanceUnix = g.Round.AutoAdvanceAt.Unix()
+		}
+		if v.RoundActive || v.RoundEnded {
+			for _, d := range extendOptions {
+				v.ExtendOptionsS = append(v.ExtendOptionsS, int(d/time.Second))
+			}
+			v.CanExtend = g.canExtendLocked() && v.You != nil && v.ExtendLeftS >= int(extendOptions[0]/time.Second)
+			v.ExtendedBy = g.extendedByNamesLocked()
 		}
 		if ans, ok := g.Round.Answers[playerID]; ok {
 			v.HasAnswered = true
@@ -826,6 +980,7 @@ type AdminView struct {
 	Scoreboard      []*Player     `json:"scoreboard"`
 	PrevRound       *RoundResult  `json:"prev_round,omitempty"`
 	History         []*GameRecord `json:"history,omitempty"`
+	ExtendedBy      []string      `json:"extended_by,omitempty"`
 }
 
 func (g *Game) AdminView() AdminView {
@@ -845,6 +1000,9 @@ func (g *Game) AdminView() AdminView {
 		}
 		if !g.Round.AutoAdvanceAt.IsZero() && v.RoundEnded {
 			v.AutoAdvanceUnix = g.Round.AutoAdvanceAt.Unix()
+		}
+		if v.RoundActive || v.RoundEnded {
+			v.ExtendedBy = g.extendedByNamesLocked()
 		}
 		v.Answers = make([]*Answer, 0, len(g.Round.Answers))
 		for _, a := range g.Round.Answers {

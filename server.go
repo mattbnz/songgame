@@ -69,6 +69,7 @@ func NewServer(cfg ServerConfig) *Server {
 	funcs := template.FuncMap{
 		"inc":  func(i int) int { return i + 1 },
 		"secs": formatSecs,
+		"join": strings.Join,
 		"pct": func(n, d int) int {
 			if d <= 0 {
 				return 0
@@ -190,6 +191,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.handleAnswer(w, r)
 	case "/draft":
 		s.handleDraft(w, r)
+	case "/extend":
+		s.handleExtend(w, r)
 	case "/events":
 		s.handlePlayerEvents(w, r)
 	case "/admin":
@@ -321,6 +324,28 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	artist := cleanGuess(r.FormValue("artist"))
 	s.game.SubmitAnswer(id, song, artist)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleExtend lets any player push back the auto-advance to the next round
+// by 10/20/30s ("secs" form value), paid from their extension budget, when
+// they want to keep listening. Called via background fetch(); the new
+// deadline arrives over SSE.
+func (s *Server) handleExtend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := s.playerID(r)
+	if id == "" || s.game.GetPlayer(id) == nil {
+		http.Error(w, "not joined", http.StatusUnauthorized)
+		return
+	}
+	secs, _ := strconv.Atoi(r.FormValue("secs"))
+	if !s.game.ExtendResults(id, time.Duration(secs)*time.Second) {
+		http.Error(w, "can't extend right now", http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handlePlayerEvents(w http.ResponseWriter, r *http.Request) {

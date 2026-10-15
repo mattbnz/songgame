@@ -125,6 +125,17 @@
   .countdown .secs { font-variant-numeric: tabular-nums; font-size: 1.1rem; color: #fff; }
   .countdown.results { background: rgba(92,184,255,0.15); color: #a9d8ff; border-color: rgba(92,184,255,0.35); }
   .countdown[hidden] { display: none; }
+  .extend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-top: 0.75rem; }
+  .extend-row .countdown { margin-top: 0; }
+  /* Full-bleed footer strip at the bottom of the round card (cancels .card.hero padding). */
+  .extend-footer { margin: 1.25rem -1.5rem -1.4rem; padding: 0.7rem 1.5rem; background: rgba(255,255,255,0.04); border-top: 1px solid var(--panel-border); border-radius: 0 0 var(--radius) var(--radius); }
+  .extend-footer .extend-row { margin-top: 0; }
+  .extend-footer #extendedBy { margin-top: 0.4rem; }
+  .extend-btns { display: inline-flex; gap: 0.35rem; }
+  .extend-btns button { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
+  .extend-budget { display: inline-flex; align-items: center; gap: 0.4rem; font-variant-numeric: tabular-nums; }
+  .extend-budget .meter { width: 4rem; height: 0.4rem; border-radius: 999px; background: rgba(255,255,255,0.10); overflow: hidden; }
+  .extend-budget .meter span { display: block; height: 100%; background: linear-gradient(90deg, #5cb8ff, #b06cff); transition: width 0.3s; }
 
   .reveal-box { margin: 0.75rem 0; padding: 1rem; border-radius: 12px; background: linear-gradient(135deg, rgba(255,181,71,0.15), rgba(176,108,255,0.15)); border: 1px solid rgba(255,181,71,0.3); }
   .reveal-box .song { font-size: 1.35rem; font-weight: 800; }
