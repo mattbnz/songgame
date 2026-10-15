@@ -56,7 +56,7 @@
       <div id="advance" class="countdown results" data-deadline="{{.AutoAdvanceUnix}}" {{if not .AutoAdvanceUnix}}hidden{{end}}>
         ⏭ Next round auto-starts in <span class="secs">—</span>s
       </div>
-      <div id="extendedBy" class="muted small" style="margin-top:0.4rem;" {{if not .ExtendedBy}}hidden{{end}}>{{if .ExtendedBy}}🎶 Extended by {{join .ExtendedBy ", "}}{{end}}</div>
+      <div id="extendedBy" class="muted small" style="margin-top:0.4rem;" {{if not .ExtendedBy}}hidden{{end}}>{{if .ExtendedBy}}🎶 Votes: {{join .ExtendedBy ", "}}{{end}}</div>
       <div style="margin-top: 1rem;">
         <form method="post" action="/admin/start-round">
           <button type="submit" class="big" {{if .RoundPrep}}disabled{{end}}>
@@ -293,7 +293,7 @@
       if (ext) {
         var names = v.extended_by || [];
         ext.hidden = names.length === 0;
-        ext.textContent = names.length ? '🎶 Extended by ' + names.join(', ') : '';
+        ext.textContent = names.length ? '🎶 Votes: ' + names.join(', ') : '';
       }
       var changed = (v.round_number !== last.round_number ||
                      v.round_prep   !== last.round_prep   ||

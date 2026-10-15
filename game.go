@@ -82,7 +82,7 @@ type Round struct {
 	Ended         bool // kept for backward-compat snapshots; = Phase==PhaseEnded
 	EndedAt       time.Time
 	AutoAdvanceAt time.Time
-	ExtendedBy    map[string]int // player ID → seconds of "more time" they added to the results screen (during guessing or after)
+	ExtendedBy    map[string]int // player ID → their one vote this round: seconds added to (+) or cut from (−) the results screen
 }
 
 // Draft is an unsubmitted in-progress guess. Players' clients post drafts
@@ -690,9 +690,13 @@ func (g *Game) endRoundLocked() {
 	g.Round.Ended = true
 	g.Round.EndedAt = time.Now()
 	g.Round.AutoAdvanceAt = time.Now().Add(g.resultsDuration)
-	// Extensions bought while guessing lengthen the results screen.
+	// Votes cast while guessing lengthen or shorten the results screen, but
+	// never below minDuration so everyone still sees the reveal.
 	for _, secs := range g.Round.ExtendedBy {
 		g.Round.AutoAdvanceAt = g.Round.AutoAdvanceAt.Add(time.Duration(secs) * time.Second)
+	}
+	if earliest := g.Round.EndedAt.Add(minDuration); g.Round.AutoAdvanceAt.Before(earliest) {
+		g.Round.AutoAdvanceAt = earliest
 	}
 	// Promote in-progress drafts from players who never explicitly submitted,
 	// so a half-typed guess still counts when the round ends suddenly.
@@ -757,11 +761,12 @@ func (g *Game) endRoundLocked() {
 	}
 }
 
-// Results-extension budget: on the results screen each player can push the
-// next round back by one of extendOptions, paid from their own budget. The
-// budget is a share of a group-wide pool, so the total delay a table can add
-// stays roughly the same whether 2 or 6 people are playing.
-var extendOptions = []time.Duration{10 * time.Second, 20 * time.Second, 30 * time.Second}
+// Results-extension budget: once per round each player can vote to push the
+// next round back (+) or pull it forward (−) by one of extendOptions, paying
+// the absolute amount from their own budget. The budget is a share of a
+// group-wide pool, so the total a table can shift stays roughly the same
+// whether 2 or 6 people are playing.
+var extendOptions = []time.Duration{-30 * time.Second, -10 * time.Second, 10 * time.Second, 30 * time.Second}
 
 const (
 	extendGroupPool = 180 * time.Second
@@ -785,11 +790,13 @@ func extendRechargeFor(players int) time.Duration {
 	return extendBudgetFor(players) / 6
 }
 
-// ExtendResults lengthens the results screen by d (which must be one of
-// extendOptions), charged against the player's budget. During guessing the
-// time is banked and applied when the round ends; after, it delays the
-// pending auto-advance directly. Returns false if there's nothing to extend,
-// d isn't allowed, or the player can't afford it.
+// ExtendResults records the player's vote to lengthen (d > 0) or shorten
+// (d < 0) the results screen; d must be one of extendOptions and |d| is
+// charged against the player's budget. During guessing the vote is banked
+// and applied when the round ends; after, it moves the pending auto-advance
+// directly (never earlier than now). Returns false if there's nothing to
+// vote on, d isn't allowed, the player already voted this round, or they
+// can't afford it.
 func (g *Game) ExtendResults(playerID string, d time.Duration) bool {
 	if !slices.Contains(extendOptions, d) {
 		return false
@@ -803,17 +810,23 @@ func (g *Game) ExtendResults(playerID string, d time.Duration) bool {
 	if p == nil {
 		return false
 	}
-	if p.extendRemaining(len(g.Players)) < d {
+	if _, voted := g.Round.ExtendedBy[playerID]; voted {
 		return false
 	}
-	secs := int(d / time.Second)
-	p.ExtendSpentS += secs
+	cost := d.Abs()
+	if p.extendRemaining(len(g.Players)) < cost {
+		return false
+	}
+	p.ExtendSpentS += int(cost / time.Second)
 	if g.Round.ExtendedBy == nil {
 		g.Round.ExtendedBy = make(map[string]int)
 	}
-	g.Round.ExtendedBy[playerID] += secs
+	g.Round.ExtendedBy[playerID] = int(d / time.Second)
 	if g.Round.Phase == PhaseEnded {
 		g.Round.AutoAdvanceAt = g.Round.AutoAdvanceAt.Add(d)
+		if now := time.Now(); g.Round.AutoAdvanceAt.Before(now) {
+			g.Round.AutoAdvanceAt = now
+		}
 		g.autoAdvanceTimer.Reset(time.Until(g.Round.AutoAdvanceAt))
 	}
 	go g.notify()
@@ -846,13 +859,13 @@ func (g *Game) refundUnendedExtensionsLocked() {
 	}
 	for id, secs := range g.Round.ExtendedBy {
 		if p := g.Players[id]; p != nil {
-			p.ExtendSpentS = max(0, p.ExtendSpentS-secs)
+			p.ExtendSpentS = max(0, p.ExtendSpentS-abs(secs))
 		}
 	}
 }
 
-// extendedByNamesLocked returns "Name +Ns" entries, sorted by name, for
-// players who extended the current round's results. Must be called with
+// extendedByNamesLocked returns "Name +Ns" / "Name −Ns" entries, sorted by
+// name, for players who voted on the current round's results. Must be called with
 // g.mu held.
 func (g *Game) extendedByNamesLocked() []string {
 	if g.Round == nil || len(g.Round.ExtendedBy) == 0 {
@@ -864,13 +877,24 @@ func (g *Game) extendedByNamesLocked() []string {
 		if p := g.Players[id]; p != nil {
 			name = p.Name
 		}
-		names = append(names, name+" +"+strconv.Itoa(secs)+"s")
+		sign := "+"
+		if secs < 0 {
+			sign = "−"
+		}
+		names = append(names, name+" "+sign+strconv.Itoa(abs(secs))+"s")
 	}
 	sort.Strings(names)
 	return names
 }
 
 // --- state snapshots for rendering/SSE ---
+
+// VoteOption is one results-time vote button on the player page.
+type VoteOption struct {
+	Secs  int    // signed change to the results screen
+	Cost  int    // budget it costs (|Secs|)
+	Label string // e.g. "+10s", "−30s"
+}
 
 type PlayerView struct {
 	RoundNumber     int           `json:"round_number"`
@@ -893,7 +917,8 @@ type PlayerView struct {
 	PrevRound       *RoundResult  `json:"prev_round,omitempty"`
 	LiveAnswers     []*LiveAnswer `json:"live_answers,omitempty"`
 	CanExtend       bool          `json:"can_extend"`
-	ExtendOptionsS  []int         `json:"-"` // button amounts, for the template
+	YourVoteS       int           `json:"your_vote_s"` // this round's vote in seconds, 0 if none yet
+	ExtendOptions   []VoteOption  `json:"-"` // buttons, for the template
 	ExtendLeftS     int           `json:"extend_left_s"`
 	ExtendBudgetS   int           `json:"extend_budget_s"`
 	ExtendRechargeS int           `json:"extend_recharge_s"`
@@ -924,9 +949,16 @@ func (g *Game) PlayerView(playerID string) PlayerView {
 		}
 		if v.RoundActive || v.RoundEnded {
 			for _, d := range extendOptions {
-				v.ExtendOptionsS = append(v.ExtendOptionsS, int(d/time.Second))
+				secs := int(d / time.Second)
+				label := "+" + strconv.Itoa(secs) + "s"
+				if secs < 0 {
+					label = "−" + strconv.Itoa(-secs) + "s"
+				}
+				v.ExtendOptions = append(v.ExtendOptions, VoteOption{Secs: secs, Cost: abs(secs), Label: label})
 			}
-			v.CanExtend = g.canExtendLocked() && v.You != nil && v.ExtendLeftS >= int(extendOptions[0]/time.Second)
+			_, voted := g.Round.ExtendedBy[playerID]
+			v.YourVoteS = g.Round.ExtendedBy[playerID]
+			v.CanExtend = g.canExtendLocked() && v.You != nil && !voted && v.ExtendLeftS >= minVoteS()
 			v.ExtendedBy = g.extendedByNamesLocked()
 		}
 		if ans, ok := g.Round.Answers[playerID]; ok {
@@ -1054,4 +1086,22 @@ func joinArtists(artists []string) string {
 	}
 	s += " & " + artists[len(artists)-1]
 	return s
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// minVoteS is the cheapest vote, in seconds.
+func minVoteS() int {
+	m := 0
+	for _, d := range extendOptions {
+		if c := int(d.Abs() / time.Second); m == 0 || c < m {
+			m = c
+		}
+	}
+	return m
 }

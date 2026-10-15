@@ -505,7 +505,7 @@ func TestResponseTimesTrackedWithoutAffectingScore(t *testing.T) {
 	}
 }
 
-func TestExtendResultsBudget(t *testing.T) {
+func TestExtendVoteOncePerSong(t *testing.T) {
 	g := NewGame()
 	g.SetCallbacks(nil, func() {})
 	g.AddOrUpdatePlayer("a", "Alice")
@@ -515,59 +515,84 @@ func TestExtendResultsBudget(t *testing.T) {
 	g.EndRound()
 	before := g.AdminView().AutoAdvanceUnix
 
-	// Full budget is three presses.
-	for i := 0; i < 3; i++ {
-		if !g.ExtendResults("a", 30*time.Second) {
-			t.Fatalf("press %d by Alice should succeed", i+1)
+	for _, bad := range []time.Duration{0, 20 * time.Second, -20 * time.Second, 15 * time.Second} {
+		if g.ExtendResults("a", bad) {
+			t.Fatalf("%v isn't an allowed vote", bad)
 		}
 	}
-	if g.ExtendResults("a", 30*time.Second) {
-		t.Fatalf("Alice should be out of budget")
+	if !g.ExtendResults("a", 30*time.Second) {
+		t.Fatalf("Alice's +30s vote should succeed")
 	}
-	if v := g.PlayerView("a"); v.CanExtend || v.ExtendLeftS != 0 {
-		t.Fatalf("Alice: CanExtend=%v left=%d, want false/0", v.CanExtend, v.ExtendLeftS)
+	if g.ExtendResults("a", 10*time.Second) || g.ExtendResults("a", -10*time.Second) {
+		t.Fatalf("Alice already voted on this song")
 	}
-	if !g.ExtendResults("b", 30*time.Second) {
-		t.Fatalf("Bob has his own budget")
+	if v := g.PlayerView("a"); v.CanExtend || v.YourVoteS != 30 || v.ExtendLeftS != 60 {
+		t.Fatalf("Alice: CanExtend=%v vote=%d left=%d, want false/30/60", v.CanExtend, v.YourVoteS, v.ExtendLeftS)
 	}
-	if g.ExtendResults("nobody", 30*time.Second) {
-		t.Fatalf("unknown player shouldn't extend")
+	if !g.ExtendResults("b", -10*time.Second) {
+		t.Fatalf("Bob's −10s vote should succeed")
+	}
+	if left := g.PlayerView("b").ExtendLeftS; left != 80 {
+		t.Fatalf("a −10s vote should cost 10s; Bob has %d left", left)
+	}
+	if g.ExtendResults("nobody", 10*time.Second) {
+		t.Fatalf("unknown player shouldn't vote")
 	}
 	v := g.AdminView()
-	if got := v.AutoAdvanceUnix - before; got != 120 {
-		t.Fatalf("expected +120s after four presses, got %+ds", got)
+	if got := v.AutoAdvanceUnix - before; got != 20 {
+		t.Fatalf("+30 −10 should net +20s, got %+ds", got)
 	}
-	if len(v.ExtendedBy) != 2 || v.ExtendedBy[0] != "Alice +90s" || v.ExtendedBy[1] != "Bob +30s" {
+	if len(v.ExtendedBy) != 2 || v.ExtendedBy[0] != "Alice +30s" || v.ExtendedBy[1] != "Bob −10s" {
 		t.Fatalf("ExtendedBy = %v", v.ExtendedBy)
 	}
 
-	// Recharge with 2 players: 15s per completed round, so two rounds for another press.
-	for i := 0; i < 2; i++ {
-		g.StartRound(track("t", "Song", "Artist"))
-		g.EndRound()
-		if i < 1 && g.ExtendResults("a", 30*time.Second) {
-			t.Fatalf("Alice shouldn't afford a press after %d recharge(s)", i+1)
-		}
-	}
-	if left := g.PlayerView("a").ExtendLeftS; left != 30 {
-		t.Fatalf("Alice should have 30s after two recharges, got %d", left)
-	}
-	if !g.ExtendResults("a", 30*time.Second) {
-		t.Fatalf("Alice should afford a press after recharging")
-	}
-	// Bob recharged to the cap, not beyond.
-	if left := g.PlayerView("b").ExtendLeftS; left != 90 {
-		t.Fatalf("Bob should be capped at 90s, got %d", left)
+	// Next song: a fresh vote.
+	g.StartRound(track("t2", "Song", "Artist"))
+	if v := g.PlayerView("a"); !v.CanExtend || v.YourVoteS != 0 {
+		t.Fatalf("Alice should get a new vote on the next song")
 	}
 
+	g.EndRound()
 	g.CancelAutoAdvance()
-	if g.ExtendResults("b", 30*time.Second) {
-		t.Fatalf("no extend once the admin cancelled auto-advance")
+	if g.ExtendResults("b", 10*time.Second) {
+		t.Fatalf("no vote once the admin cancelled auto-advance")
 	}
 
 	g.EndGame()
 	if left := g.PlayerView("a").ExtendLeftS; left != 90 {
 		t.Fatalf("budget should reset with the game, got %d", left)
+	}
+}
+
+func TestExtendBudgetRecharges(t *testing.T) {
+	g := NewGame()
+	g.SetCallbacks(nil, func() {})
+	g.AddOrUpdatePlayer("a", "Alice")
+	g.AddOrUpdatePlayer("b", "Bob")
+
+	// Alice votes 30s on every song; each round end recharges 15s (2 players).
+	// 90 → 60 → (75) 45 → (60) 30 → (45) 15 → (30) 0
+	for i, want := range []int{60, 45, 30, 15, 0} {
+		g.StartRound(track("t", "Song", "Artist"))
+		g.EndRound()
+		if !g.ExtendResults("a", 30*time.Second) {
+			t.Fatalf("vote %d should be affordable", i+1)
+		}
+		if left := g.PlayerView("a").ExtendLeftS; left != want {
+			t.Fatalf("after vote %d: left %d, want %d", i+1, left, want)
+		}
+	}
+	g.StartRound(track("t", "Song", "Artist"))
+	g.EndRound()
+	if v := g.PlayerView("a"); v.ExtendLeftS != 15 || !v.CanExtend {
+		t.Fatalf("after recharge: left=%d CanExtend=%v, want 15/true (a 10s vote)", v.ExtendLeftS, v.CanExtend)
+	}
+	if g.ExtendResults("a", 30*time.Second) || !g.ExtendResults("a", -10*time.Second) {
+		t.Fatalf("with 15s left only a 10s vote should be affordable")
+	}
+	// Bob never voted: capped at the max.
+	if left := g.PlayerView("b").ExtendLeftS; left != 90 {
+		t.Fatalf("Bob should be capped at 90s, got %d", left)
 	}
 }
 
@@ -591,55 +616,20 @@ func TestExtendBudgetScalesWithPlayers(t *testing.T) {
 			t.Errorf("%d players: recharge %ds, want %ds", c.players, got, c.charge)
 		}
 	}
-
-	// With 4 players each gets one press, then has 15s left.
-	g := NewGame()
-	g.SetCallbacks(nil, func() {})
-	for _, id := range []string{"a", "b", "c", "d"} {
-		g.AddOrUpdatePlayer(id, id)
-	}
-	g.StartRound(track("t1", "Song", "Artist"))
-	g.EndRound()
-	if !g.ExtendResults("a", 30*time.Second) || g.ExtendResults("a", 30*time.Second) {
-		t.Fatalf("with 4 players Alice should get exactly one press")
-	}
-	if left := g.PlayerView("a").ExtendLeftS; left != 15 {
-		t.Fatalf("left = %d, want 15", left)
-	}
 }
 
-func TestExtendResultsAmounts(t *testing.T) {
+func TestExtendVoteCantSkipPastNow(t *testing.T) {
 	g := NewGame()
+	g.SetDurations(5*time.Second, 5*time.Second)
 	g.SetCallbacks(nil, func() {})
-	for _, id := range []string{"a", "b", "c", "d"} {
-		g.AddOrUpdatePlayer(id, id)
-	}
+	g.AddOrUpdatePlayer("a", "Alice")
 	g.StartRound(track("t1", "Song", "Artist"))
 	g.EndRound()
-	before := g.AdminView().AutoAdvanceUnix
-
-	if g.ExtendResults("a", 15*time.Second) {
-		t.Fatalf("15s isn't an allowed amount")
+	if !g.ExtendResults("a", -30*time.Second) {
+		t.Fatalf("−30s vote should succeed")
 	}
-	// 4 players → 45s budget: 20 + 20 fits, leaving 5s.
-	if !g.ExtendResults("a", 20*time.Second) || !g.ExtendResults("a", 20*time.Second) {
-		t.Fatalf("two 20s presses should fit in a 45s budget")
-	}
-	if g.ExtendResults("a", 10*time.Second) {
-		t.Fatalf("only 5s left; 10s shouldn't be affordable")
-	}
-	if v := g.PlayerView("a"); v.CanExtend || v.ExtendLeftS != 5 {
-		t.Fatalf("CanExtend=%v left=%d, want false/5", v.CanExtend, v.ExtendLeftS)
-	}
-	if !g.ExtendResults("b", 10*time.Second) {
-		t.Fatalf("Bob's 10s press should succeed")
-	}
-	v := g.AdminView()
-	if got := v.AutoAdvanceUnix - before; got != 50 {
-		t.Fatalf("expected +50s, got %+ds", got)
-	}
-	if len(v.ExtendedBy) != 2 || v.ExtendedBy[0] != "a +40s" || v.ExtendedBy[1] != "b +10s" {
-		t.Fatalf("ExtendedBy = %v", v.ExtendedBy)
+	if got := g.AdminView().AutoAdvanceUnix - time.Now().Unix(); got < 0 || got > 1 {
+		t.Fatalf("next round should be due now, got %+ds", got)
 	}
 }
 
@@ -652,29 +642,39 @@ func TestExtendDuringGuessing(t *testing.T) {
 
 	g.StartRound(track("t1", "Song", "Artist"))
 	if !g.PlayerView("a").CanExtend {
-		t.Fatalf("should be able to extend while guessing")
+		t.Fatalf("should be able to vote while guessing")
 	}
-	if !g.ExtendResults("a", 20*time.Second) {
-		t.Fatalf("extend while guessing should succeed")
+	if !g.ExtendResults("a", 30*time.Second) || !g.ExtendResults("b", -10*time.Second) {
+		t.Fatalf("votes while guessing should succeed")
 	}
-	if v := g.AdminView(); v.AutoAdvanceUnix != 0 || len(v.ExtendedBy) != 1 {
-		t.Fatalf("banked extension shouldn't set a deadline yet; got %d, %v", v.AutoAdvanceUnix, v.ExtendedBy)
+	if v := g.AdminView(); v.AutoAdvanceUnix != 0 || len(v.ExtendedBy) != 2 {
+		t.Fatalf("banked votes shouldn't set a deadline yet; got %d, %v", v.AutoAdvanceUnix, v.ExtendedBy)
+	}
+	if g.ExtendResults("a", 10*time.Second) {
+		t.Fatalf("a vote while guessing uses up the vote for this song")
 	}
 	g.EndRound()
-	// 30s results + 20s banked
+	// 30s results +30 −10
 	if got := g.AdminView().AutoAdvanceUnix - time.Now().Unix(); got < 49 || got > 50 {
 		t.Fatalf("results should last ~50s, got %ds", got)
 	}
-	if left := g.PlayerView("a").ExtendLeftS; left != 85 {
-		t.Fatalf("Alice spent 20s then recharged 15s: want 85, got %d", left)
+
+	// Banked "skip it" votes can't cut the reveal below the minimum.
+	g.StartRound(track("t2", "Song", "Artist"))
+	g.ExtendResults("a", -30*time.Second)
+	g.ExtendResults("b", -30*time.Second)
+	g.EndRound()
+	if got := g.AdminView().AutoAdvanceUnix - time.Now().Unix(); got < 4 || got > 5 {
+		t.Fatalf("results should be clamped to ~5s, got %ds", got)
 	}
 
-	// Host skips a round mid-guessing: banked time is refunded.
-	g.StartRound(track("t2", "Song", "Artist"))
-	g.ExtendResults("b", 30*time.Second)
+	// Host skips a round mid-guessing: the vote's cost is refunded.
 	g.StartRound(track("t3", "Song", "Artist"))
-	if left := g.PlayerView("b").ExtendLeftS; left != 90 {
-		t.Fatalf("Bob's skipped-round extension should be refunded, got %d", left)
+	before := g.PlayerView("b").ExtendLeftS
+	g.ExtendResults("b", -10*time.Second)
+	g.StartRound(track("t4", "Song", "Artist"))
+	if left := g.PlayerView("b").ExtendLeftS; left != before {
+		t.Fatalf("Bob's skipped-round vote should be refunded: %d → %d", before, left)
 	}
 }
 
@@ -683,6 +683,6 @@ func TestNoExtendWithoutAutoAdvance(t *testing.T) {
 	g.AddOrUpdatePlayer("a", "Alice")
 	g.StartRound(track("t1", "Song", "Artist"))
 	if g.ExtendResults("a", 10*time.Second) || g.PlayerView("a").CanExtend {
-		t.Fatalf("no extending when there's no auto-advance to delay")
+		t.Fatalf("no voting when there's no auto-advance to move")
 	}
 }

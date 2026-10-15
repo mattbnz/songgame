@@ -76,17 +76,17 @@
     {{if or .RoundActive .RoundEnded}}
       <footer class="extend-footer">
       <div class="extend-row">
-        <span class="muted small">🎶 Like this song?</span>
-        <span class="extend-btns" title="{{if .RoundActive}}Add time to the results screen after this round{{else}}Delay the next round{{end}}">
-          {{range .ExtendOptionsS}}<button type="button" class="secondary extend" data-secs="{{.}}" {{if or (not $.CanExtend) (gt . $.ExtendLeftS)}}disabled{{end}}>+{{.}}s</button>{{end}}
+        <span class="muted small">🎶 Love it or skip it?</span>
+        <span class="extend-btns" title="One vote per song: more or less time on the results screen {{if .RoundActive}}after this round{{else}}before the next round{{end}}">
+          {{range .ExtendOptions}}<button type="button" class="secondary extend{{if lt .Secs 0}} minus{{end}}{{if eq .Secs $.YourVoteS}} chosen{{end}}" data-secs="{{.Secs}}" {{if or (not $.CanExtend) (gt .Cost $.ExtendLeftS)}}disabled{{end}}>{{.Label}}</button>{{end}}
         </span>
-        <span class="extend-budget" id="extendBudget" title="Your time budget for delaying the next round. Refills {{.ExtendRechargeS}}s each round.">
+        <span class="extend-budget" id="extendBudget" title="Your budget for voting more or less time between rounds. Refills {{.ExtendRechargeS}}s each round.">
           <span class="muted small">Budget</span>
           <span class="meter"><span id="extendMeter" style="width:{{pct .ExtendLeftS .ExtendBudgetS}}%"></span></span>
           <span id="extendLeft" class="small">{{.ExtendLeftS}}s / {{.ExtendBudgetS}}s</span>
         </span>
       </div>
-      <div id="extendedBy" class="muted small" {{if not .ExtendedBy}}hidden{{end}}>{{if .ExtendedBy}}🎶 Extended by {{join .ExtendedBy ", "}}{{end}}</div>
+      <div id="extendedBy" class="muted small" {{if not .ExtendedBy}}hidden{{end}}>{{if .ExtendedBy}}🎶 Votes: {{join .ExtendedBy ", "}}{{end}}</div>
       </footer>
     {{end}}
   </div>
@@ -263,10 +263,10 @@
     if (document.visibilityState === 'hidden') sendDraftNow();
   });
 
-  // "I like this song" — any player can push the next round back 10/20/30s,
-  // while guessing (banked for the results screen) or after,
-  // spending from a per-player budget that recharges a little each round.
-  // The new deadline, remaining budget and who extended arrive over SSE.
+  // "Love it or skip it" — one vote per player per song to push the next
+  // round back or pull it forward, while guessing (banked for the results
+  // screen) or after, spending from a per-player budget that recharges a
+  // little each round. The new deadline, budget and votes arrive over SSE.
   var extendBtns = document.querySelectorAll('button.extend');
   extendBtns.forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -279,19 +279,21 @@
   });
   function renderExtended(v) {
     extendBtns.forEach(function(b){
-      b.disabled = !v.can_extend || parseInt(b.dataset.secs, 10) > v.extend_left_s;
+      var secs = parseInt(b.dataset.secs, 10);
+      b.disabled = !v.can_extend || Math.abs(secs) > v.extend_left_s;
+      b.classList.toggle('chosen', secs === v.your_vote_s);
     });
     var left = document.getElementById('extendLeft');
     if (left) left.textContent = v.extend_left_s + 's / ' + v.extend_budget_s + 's';
     var meter = document.getElementById('extendMeter');
     if (meter) meter.style.width = (v.extend_budget_s > 0 ? Math.min(100, Math.round(100 * v.extend_left_s / v.extend_budget_s)) : 0) + '%';
     var budget = document.getElementById('extendBudget');
-    if (budget) budget.title = 'Your time budget for delaying the next round. Refills ' + v.extend_recharge_s + 's each round.';
+    if (budget) budget.title = 'Your budget for voting more or less time between rounds. Refills ' + v.extend_recharge_s + 's each round.';
     var el = document.getElementById('extendedBy');
     if (!el) return;
     var names = v.extended_by || [];
     el.hidden = names.length === 0;
-    el.textContent = names.length ? '🎶 Extended by ' + names.join(', ') : '';
+    el.textContent = names.length ? '🎶 Votes: ' + names.join(', ') : '';
   }
 
   var es = new EventSource("/events");
