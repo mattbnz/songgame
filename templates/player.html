@@ -81,12 +81,13 @@
     <p class="muted" style="margin-top:0">The song was <strong style="color:var(--text)">{{.Song}}</strong> by <strong style="color:var(--text)">{{.Artists}}</strong>.</p>
     {{if .Answers}}
     <table>
-      <tr><th>Player</th><th>Song guess</th><th>Artist guess</th></tr>
+      <tr><th>Player</th><th>Song guess</th><th>Artist guess</th><th class="time">Time</th></tr>
       {{range .Answers}}
       <tr class="{{if and $.You (eq .PlayerID $.You.ID)}}me{{end}}">
         <td>{{.PlayerName}}</td>
         <td>{{.SongGuess}} {{if .SongCorrect}}<span class="mark-ok">✓</span>{{else}}<span class="mark-no">✗</span>{{end}}</td>
         <td>{{.ArtistGuess}} {{if .ArtistCorrect}}<span class="mark-ok">✓</span>{{else}}<span class="mark-no">✗</span>{{end}}</td>
+        <td class="time">{{if .ResponseMS}}{{secs .ResponseMS}}{{else}}—{{end}}</td>
       </tr>
       {{end}}
     </table>
@@ -103,7 +104,7 @@
       <ol id="scoreboard">
         {{range $i, $p := .Scoreboard}}
         <li class="{{if and $.You (eq $p.ID $.You.ID)}}me{{end}}">
-          <span class="rank">{{inc $i}}</span><span class="name">{{$p.Name}}</span><span class="score">{{$p.Score}}</span>
+          <span class="rank">{{inc $i}}</span><span class="name">{{$p.Name}}</span><span class="avg" title="Average response time">{{if $p.ResponseCount}}⏱ {{secs $p.AvgResponseMS}}{{end}}</span><span class="score">{{$p.Score}}</span>
         </li>
         {{else}}
         <li class="empty">No players yet</li>
@@ -147,6 +148,11 @@
     tbody.innerHTML = html;
   }
 
+  // Mirrors the server-side "secs" template func.
+  function formatSecs(ms) {
+    return (Math.floor(ms) / 1000).toFixed(1) + 's';
+  }
+
   function renderScoreboard(list) {
     var ol = document.getElementById('scoreboard');
     if (!ol || !list) return;
@@ -160,6 +166,8 @@
       var meCls = (youID && p.id === youID) ? ' class="me"' : '';
       html += '<li' + meCls + '><span class="rank">' + (i + 1)
            + '</span><span class="name">' + escapeHTML(p.name)
+           + '</span><span class="avg" title="Average response time">'
+           + (p.response_count ? '⏱ ' + formatSecs(p.response_total_ms / p.response_count) : '')
            + '</span><span class="score">' + escapeHTML(p.score) + '</span></li>';
     }
     ol.innerHTML = html;

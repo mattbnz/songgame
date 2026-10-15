@@ -67,7 +67,8 @@ const devicesCacheTTL = 5 * time.Minute
 
 func NewServer(cfg ServerConfig) *Server {
 	funcs := template.FuncMap{
-		"inc": func(i int) int { return i + 1 },
+		"inc":  func(i int) int { return i + 1 },
+		"secs": formatSecs,
 		"pct": func(n, d int) int {
 			if d <= 0 {
 				return 0
@@ -883,3 +884,8 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+
+// formatSecs renders a millisecond duration as e.g. "12.3s".
+func formatSecs(ms int64) string {
+	return fmt.Sprintf("%.1fs", float64(ms)/1000)
+}

@@ -453,3 +453,54 @@ func TestGraceUntilClearsOnRoundEnd(t *testing.T) {
 		t.Fatalf("grace_until should be cleared after round ends, got %d", v.GraceUntilUnix)
 	}
 }
+
+func TestResponseTimesTrackedWithoutAffectingScore(t *testing.T) {
+	g := NewGame()
+	g.AddOrUpdatePlayer("a", "Alice")
+	g.AddOrUpdatePlayer("b", "Bob")
+
+	g.StartRound(track("t1", "Imagine", "John Lennon"))
+	g.mu.Lock()
+	g.Round.StartedAt = time.Now().Add(-4 * time.Second)
+	g.mu.Unlock()
+	g.SubmitAnswer("a", "Imagine", "John Lennon")
+	g.mu.Lock()
+	g.Round.StartedAt = time.Now().Add(-10 * time.Second)
+	g.mu.Unlock()
+	g.SubmitAnswer("b", "Imagine", "nope")
+
+	prev := g.AdminView().PrevRound
+	byID := map[string]*Answer{}
+	for _, a := range prev.Answers {
+		byID[a.PlayerID] = a
+	}
+	if ms := byID["a"].ResponseMS; ms < 4000 || ms > 5000 {
+		t.Fatalf("alice response_ms = %d, want ~4000", ms)
+	}
+	if ms := byID["b"].ResponseMS; ms < 10000 || ms > 11000 {
+		t.Fatalf("bob response_ms = %d, want ~10000", ms)
+	}
+
+	g.StartRound(track("t2", "Yesterday", "The Beatles"))
+	g.mu.Lock()
+	g.Round.StartedAt = time.Now().Add(-2 * time.Second)
+	g.mu.Unlock()
+	g.SubmitAnswer("a", "x", "y")
+	g.EndRound()
+
+	alice, bob := g.GetPlayer("a"), g.GetPlayer("b")
+	if alice.Score != 2 || bob.Score != 1 {
+		t.Fatalf("scores changed by timing: alice=%d bob=%d", alice.Score, bob.Score)
+	}
+	if alice.ResponseCount != 2 || bob.ResponseCount != 1 {
+		t.Fatalf("response counts: alice=%d bob=%d", alice.ResponseCount, bob.ResponseCount)
+	}
+	if avg := alice.AvgResponseMS(); avg < 3000 || avg > 3500 {
+		t.Fatalf("alice avg = %d, want ~3000", avg)
+	}
+
+	g.EndGame()
+	if p := g.GetPlayer("a"); p.ResponseCount != 0 || p.AvgResponseMS() != 0 {
+		t.Fatalf("response stats should reset on EndGame")
+	}
+}
